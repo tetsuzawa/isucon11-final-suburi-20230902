@@ -75,3 +75,19 @@ CREATE TABLE unread_announcements
     is_deleted      BOOLEAN    NOT NULL DEFAULT false,
     PRIMARY KEY (announcement_id, user_id)
 );
+
+create index submissions_class_id_index
+    on submissions (class_id);
+    
+create index courses_teacher_id_index2
+    on courses (teacher_id);
+    
+create index classes_part_index
+    on classes (part);
+
+create index announcements_course_id_index
+    on announcements (course_id);
+
+create index unread_announcements_user_id_is_deleted_index
+    on unread_announcements (user_id, is_deleted);
+
