@@ -1260,7 +1260,7 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	}
 
 	zipFilePath := AssignmentsDirectory + classID + ".zip"
-	if err := createSubmissionsZip(zipFilePath, classID, submissions); err != nil {
+	if err := createSubmissionsZip(c.Request().Context(), zipFilePath, classID, submissions); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1278,7 +1278,10 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	return c.File(zipFilePath)
 }
 
-func createSubmissionsZip(zipFilePath string, classID string, submissions []Submission) error {
+func createSubmissionsZip(ctx context.Context, zipFilePath string, classID string, submissions []Submission) error {
+	ctx, span := tracer.Start(ctx, "createSubmmissionsZip")
+	defer span.End()
+
 	tmpDir := AssignmentsDirectory + classID + "/"
 	if err := exec.Command("rm", "-rf", tmpDir).Run(); err != nil {
 		return err
