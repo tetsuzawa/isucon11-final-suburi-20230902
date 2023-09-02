@@ -58,7 +58,7 @@ func main() {
 	if err != nil {
 		e.Logger.Fatal(err)
 	}
-	db.SetMaxOpenConns(10)
+	db.SetMaxOpenConns(100)
 
 	h := &handlers{
 		DB: db,
