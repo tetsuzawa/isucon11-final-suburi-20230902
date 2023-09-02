@@ -22,6 +22,7 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/samber/lo"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -1181,8 +1182,8 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 }
 
 type Score struct {
-	UserCode string `json:"user_code"`
-	Score    int    `json:"score"`
+	UserCode string `json:"user_code" db:"user_code"`
+	Score    int    `json:"score" db:"score"`
 }
 
 // RegisterScores PUT /api/courses/:courseID/classes/:classID/assignments/scores 採点結果登録
@@ -1212,12 +1213,46 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.String(http.StatusBadRequest, "Invalid format.")
 	}
+	scoreMap := lo.SliceToMap(req, func(s Score) (string, int) {
+		return s.UserCode, s.Score
+	})
+	userCodes := lo.Keys(scoreMap)
 
-	for _, score := range req {
-		if _, err := tx.ExecContext(c.Request().Context(), "UPDATE `submissions` SET score = ? FROM `users` WHERE `users`.`id` = `submissions`.`user_id` AND `users`.`code` = ? AND `class_id` = ?", score.Score, score.UserCode, classID); err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
+	var ss []Submission
+	query, args, err := sqlx.In(
+		"SELECT submissions.user_id, users.code AS user_code, submissions.class_id, submissions.file_name FROM submissions INNER JOIN users ON submissions.user_id = users.id WHERE users.code IN (?) AND submissions.class_id = ?",
+		userCodes,
+		classID,
+	)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	if err := tx.SelectContext(
+		c.Request().Context(),
+		&ss,
+		query,
+		args...,
+	); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	for i, s := range ss {
+		ss[i] = Submission{
+			UserID:   s.UserID,
+			FileName: s.FileName,
+			ClassID:  classID,
+			Score:    scoreMap[s.UserCode],
 		}
+	}
+
+	if _, err := tx.NamedExecContext(
+		c.Request().Context(),
+		"INSERT INTO submissions (user_id, class_id, file_name, score) VALUES (:user_id, :class_id, :file_name, :score) ON CONFLICT (user_id, class_id) DO UPDATE SET score = excluded.score",
+		ss,
+	); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -1232,6 +1267,8 @@ type Submission struct {
 	UserID   string `db:"user_id"`
 	UserCode string `db:"user_code"`
 	FileName string `db:"file_name"`
+	ClassID  string `db:"class_id"`
+	Score    int    `db:"score"`
 }
 
 // DownloadSubmittedAssignments GET /api/courses/:courseID/classes/:classID/assignments/export 提出済みの課題ファイルをzip形式で一括ダウンロード
