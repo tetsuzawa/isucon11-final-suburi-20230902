@@ -494,7 +494,7 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	}
 
 	for _, course := range newlyAdded {
-		_, err = tx.Exec("INSERT INTO `registrations` (`course_id`, `user_id`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `course_id` = VALUES(`course_id`), `user_id` = VALUES(`user_id`)", course.ID, userID)
+		_, err = tx.Exec("INSERT INTO `registrations` (`course_id`, `user_id`) VALUES (?, ?) ON CONFLICT (course_id, user_id) DO NOTHING", course.ID, userID)
 		if err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
@@ -1136,7 +1136,7 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	}
 	defer file.Close()
 
-	if _, err := tx.Exec("INSERT INTO `submissions` (`user_id`, `class_id`, `file_name`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `file_name` = VALUES(`file_name`)", userID, classID, header.Filename); err != nil {
+	if _, err := tx.Exec("INSERT INTO `submissions` (`user_id`, `class_id`, `file_name`) VALUES (?, ?, ?) ON CONFLICT (user_id, class_id) DO UPDATE SET file_name = ?", userID, classID, header.Filename, header.Filename); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
