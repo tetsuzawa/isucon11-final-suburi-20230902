@@ -622,7 +622,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	}
 
 	// courseIDs を使ってsubmissionsにWHERE IN で検索する
-	query = "SELECT submissions.score, classes.course_id" +
+	query = "SELECT submissions.score, classes.course_id, classes.id" +
 		" FROM submissions" +
 		" INNER JOIN public.classes on classes.id = submissions.class_id" +
 		" WHERE course_id IN(?)" +
