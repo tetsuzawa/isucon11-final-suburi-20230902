@@ -1,8 +1,10 @@
 package main
 
 import (
+	"github.com/XSAM/otelsql"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 )
 
 func GetDB(batch bool) (*sqlx.DB, error) {
@@ -18,5 +20,16 @@ func GetDB(batch bool) (*sqlx.DB, error) {
 	mysqlConfig.ParseTime = true
 	mysqlConfig.MultiStatements = batch
 
-	return sqlx.Open("mysql", mysqlConfig.FormatDSN())
+	db, err := otelsql.OpenDB(
+		"mysql",
+		mysqlConfig.FormatDSN(),
+		otelsql.WithAttributes(
+			semconv.DBSystemMySQL,
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return sqlx.NewDb(db, "mysql"), nil
 }
