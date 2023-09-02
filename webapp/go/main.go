@@ -508,12 +508,14 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errors)
 	}
 
+	values := make([]string, 0, len(newlyAdded))
 	for _, course := range newlyAdded {
-		_, err = tx.ExecContext(c.Request().Context(), "INSERT INTO `registrations` (`course_id`, `user_id`) VALUES (?, ?) ON CONFLICT (course_id, user_id) DO NOTHING", course.ID, userID)
-		if err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+		values = append(values, fmt.Sprintf("('%s', '%s')", course.ID, userID))
+	}
+	query = "INSERT INTO `registrations` (`course_id`, `user_id`) VALUES " + strings.Join(values, ",") + " ON CONFLICT (course_id, user_id) DO NOTHING"
+	if _, err := tx.ExecContext(c.Request().Context(), query); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err = tx.Commit(); err != nil {
@@ -1540,7 +1542,7 @@ func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
 		return c.String(http.StatusNotFound, "No such announcement.")
 	}
 
-	if _, err := tx.ExecContext(c.Request().Context(), "UPDATE `unread_announcements` SET `is_deleted` = true WHERE `announcement_id` = ? AND `user_id` = ?", announcementID, userID); err != nil {
+	if _, err := tx.ExecContext(c.Request().Context(), "UPDATE `unread_announcements` SET `is_deleted` = TRUE WHERE `announcement_id` = ? AND `user_id` = ?", announcementID, userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
