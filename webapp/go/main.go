@@ -1003,6 +1003,23 @@ func (h *handlers) GetClasses(c echo.Context) error {
 
 	courseID := c.Param("courseID")
 
+	tx, err := h.DB.Beginx()
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	defer tx.Rollback()
+
+	var count int
+	if err := tx.Get(&count, "SELECT COUNT(*) FROM `courses` WHERE `id` = ?", courseID); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	if count == 0 {
+		return c.String(http.StatusNotFound, "No such course.")
+	}
+
+	// 304 not modified のための cache
 	courseClassesCountChanged, err := rdb.SIsMember(c.Request().Context(), GetClassesCourseClassesCountCacheKey, courseID).Result()
 	if err != nil {
 		c.Logger().Error(err)
@@ -1022,28 +1039,20 @@ func (h *handlers) GetClasses(c echo.Context) error {
 	// 304 not modifiedを返せるなら返す
 	if isAdmin {
 		if !courseClassesCountChanged && !courseStatusChanged {
+			if err := tx.Commit(); err != nil {
+				c.Logger().Error(err)
+				return c.NoContent(http.StatusInternalServerError)
+			}
 			return c.NoContent(http.StatusNotModified)
 		}
 	} else {
 		if !courseClassesCountChanged && !courseStatusChanged && !courseUserSubmittedChanged {
+			if err := tx.Commit(); err != nil {
+				c.Logger().Error(err)
+				return c.NoContent(http.StatusInternalServerError)
+			}
 			return c.NoContent(http.StatusNotModified)
 		}
-	}
-
-	tx, err := h.DB.Beginx()
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	defer tx.Rollback()
-
-	var count int
-	if err := tx.Get(&count, "SELECT COUNT(*) FROM `courses` WHERE `id` = ?", courseID); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if count == 0 {
-		return c.String(http.StatusNotFound, "No such course.")
 	}
 
 	var classes []ClassWithSubmitted
