@@ -566,7 +566,7 @@ type ClassScore struct {
 	Submitters int    `json:"submitters"` // 提出した学生数
 }
 
-type Score struct {
+type DBScore struct {
 	UserID   string `db:"id"`
 	CourseID string `db:"course_id"`
 	ClassID  string `db:"class_id"`
@@ -635,14 +635,14 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	}
 
 	// Scoreを取得
-	var myScores []Score
+	var myScores []DBScore
 	if err := h.DB.GetContext(c.Request().Context(), &myScores, query, params...); err != nil && err != sql.ErrNoRows {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	// myScores に含まれる ClassID をkeyにしてmapを作る
-	myScoresMap := make(map[string]Score)
+	myScoresMap := make(map[string]DBScore)
 	for _, score := range myScores {
 		myScoresMap[score.ClassID] = score
 	}
@@ -681,7 +681,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 			}
 
 			// myScoreが空の場合は、classScoresをappendして次のループへ
-			if score, ok := myScoresMap[class.ID]; !ok {
+			if s, ok := myScoresMap[class.ID]; !ok {
 				classScores = append(classScores, ClassScore{
 					ClassID:    class.ID,
 					Part:       class.Part,
@@ -690,7 +690,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 					Submitters: submissionsCount,
 				})
 			} else {
-				score := int(score.Score)
+				score := int(s.Score)
 				myTotalScore += score
 				classScores = append(classScores, ClassScore{
 					ClassID:    class.ID,
