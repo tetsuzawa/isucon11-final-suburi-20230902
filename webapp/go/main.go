@@ -631,6 +631,11 @@ func (h *handlers) GetGrades(c echo.Context) error {
 
 		// 講義毎の成績計算処理
 		classes := classesMap[course.ID]
+		// classesをpartの降順でソート
+		sort.Slice(classes, func(i, j int) bool {
+			return classes[i].Part > classes[j].Part
+		})
+
 		classScores := make([]ClassScore, 0, len(classes))
 		var myTotalScore int
 		for _, class := range classes {
