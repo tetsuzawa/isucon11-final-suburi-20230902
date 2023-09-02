@@ -1,0 +1,24 @@
+/log
+/result
+/go
+/local
+
+# 不定
+.bash_history
+.bash_logout
+.bash_profile
+.bashrc
+.bundle/
+.cache/
+.cargo/
+.config/
+.gitconfig
+.local/
+.mysql_history
+.npm/
+.profile
+.rustup/
+.ssh/
+.viminfo
+/benchmarker
+
