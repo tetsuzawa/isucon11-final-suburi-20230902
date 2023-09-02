@@ -1220,7 +1220,7 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 
 	var ss []Submission
 	query, args, err := sqlx.In(
-		"SELECT submissions.user_id, submissions.user_code, submissions.file_name FROM submissions INNER JOIN users ON submissions.user_id = users.id WHERE users.code IN (?) AND submissions.class_id = ?",
+		"SELECT submissions.user_id, submissions.class_id, submissions.file_name FROM submissions INNER JOIN users ON submissions.user_id = users.id WHERE users.code IN (?) AND submissions.class_id = ?",
 		userCodes,
 		classID,
 	)
@@ -1239,7 +1239,6 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 	}
 	for i, s := range ss {
 		ss[i].Score = scoreMap[s.UserCode]
-		ss[i].ClassID = classID
 	}
 
 	if _, err := tx.NamedExecContext(
