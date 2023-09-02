@@ -979,7 +979,7 @@ type GetClassResponse struct {
 
 const GetClassesCourseClassesCountCacheKey = "getclasses_course_classes_count"
 const GetClassesCourseStatusChangedCacheKey = "getclasses_course_status"
-const GetClassesCourseUserSubmittedChangedCacheKeyPrefix = "getclasses_course_user_submitted"
+const GetClassesCourseUserSubmittedChangedCacheKeyPrefix = "getclasses_course_user_submitted_"
 
 // GetClasses GET /api/courses/:courseID/classes 科目に紐づく講義一覧の取得
 // 変化がなければ304 not modifiedを返したい
@@ -1031,7 +1031,7 @@ func (h *handlers) GetClasses(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	courseUserSubmittedChanged, err := rdb.SIsMember(c.Request().Context(), GetClassesCourseUserSubmittedChangedCacheKeyPrefix+courseID, userID).Result()
+	courseUserSubmittedChanged, err := rdb.SIsMember(c.Request().Context(), GetClassesCourseUserSubmittedChangedCacheKeyPrefix+":"+courseID, userID).Result()
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
