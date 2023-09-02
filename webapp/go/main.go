@@ -1239,6 +1239,7 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 	}
 	for i, s := range ss {
 		ss[i].Score = scoreMap[s.UserCode]
+		ss[i].ClassID = classID
 	}
 
 	if _, err := tx.NamedExecContext(
@@ -1262,6 +1263,7 @@ type Submission struct {
 	UserID   string `db:"user_id"`
 	UserCode string `db:"user_code"`
 	FileName string `db:"file_name"`
+	ClassID  string `db:"class_id"`
 	Score    int    `db:"score"`
 }
 
