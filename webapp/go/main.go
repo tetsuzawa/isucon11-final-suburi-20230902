@@ -19,6 +19,7 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -28,6 +29,10 @@ const (
 	InitDataDirectory         = "../data/"
 	SessionName               = "isucholar_go"
 	mysqlErrNumDuplicateEntry = 1062
+)
+
+var (
+	rdb *redis.Client
 )
 
 type handlers struct {
@@ -46,6 +51,12 @@ func main() {
 
 	db, _ := GetDB(false)
 	db.SetMaxOpenConns(10)
+
+	rdb = redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
 
 	h := &handlers{
 		DB: db,
@@ -903,6 +914,7 @@ type SetCourseStatusRequest struct {
 }
 
 // SetCourseStatus PUT /api/courses/:courseID/status 科目のステータスを変更
+// 生徒&講義に紐づく提出済み有無 更新
 func (h *handlers) SetCourseStatus(c echo.Context) error {
 	courseID := c.Param("courseID")
 
@@ -936,6 +948,11 @@ func (h *handlers) SetCourseStatus(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	// 講義に紐づく提出締め切り有無の更新
+	if err := rdb.SRem(c.Request().Context(), GetClassesCouseStatusCacheKey, req.Status).Err(); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
 
 	return c.NoContent(http.StatusOK)
 }
@@ -959,15 +976,59 @@ type GetClassResponse struct {
 	Submitted        bool   `json:"submitted"`
 }
 
+const GetClassesCourseClassesCountCacheKey = "getclasses_course_classes_count"
+const GetClassesCouseStatusCacheKey = "getclasses_course_status"
+const GetClassesCourseUserSubmittedCacheKeyPrefix = "getclasses_course_user_submitted"
+
 // GetClasses GET /api/courses/:courseID/classes 科目に紐づく講義一覧の取得
+// 変化がなければ304 not modifiedを返したい
+// 生徒も教師も同じAPIを使う
+// 講義に紐づく提出締め切り有無
+// 生徒&講義に紐づく提出済み有無
+//
+//	教師側から参照するときはsubmittedはfalseで良い
+//
+// 生徒側はもし提出済み状況が変わったら or 講義のclosed状況が変わったら 304 not modifiedは返せない
+// 教師側は講義のclosed状況が変わったら 304 not modifiedは返せない
+//
+// ~~GPA画面の講義に紐づく課題提出者数のキャッシュ~~
+// 課題提出者数はindex貼れば遅くないので気にしない
+// 講義に紐づく課題提出者数はredisにキャッシュできる
 func (h *handlers) GetClasses(c echo.Context) error {
-	userID, _, _, err := getUserInfo(c)
+	userID, _, isAdmin, err := getUserInfo(c)
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	courseID := c.Param("courseID")
+
+	courseClassesCountChanged, err := rdb.SIsMember(c.Request().Context(), GetClassesCourseClassesCountCacheKey, courseID).Result()
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	courseStatusChanged, err := rdb.SIsMember(c.Request().Context(), GetClassesCouseStatusCacheKey, courseID).Result()
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	courseUserSubmittedChanged, err := rdb.SIsMember(c.Request().Context(), GetClassesCourseUserSubmittedCacheKeyPrefix+courseID, userID).Result()
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	// 304 not modifiedを返せるなら返す
+	if isAdmin {
+		if !courseClassesCountChanged && !courseStatusChanged {
+			return c.NoContent(http.StatusNotModified)
+		}
+	} else {
+		if !courseClassesCountChanged && !courseStatusChanged && !courseUserSubmittedChanged {
+			return c.NoContent(http.StatusNotModified)
+		}
+	}
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
@@ -1012,6 +1073,22 @@ func (h *handlers) GetClasses(c echo.Context) error {
 			SubmissionClosed: class.SubmissionClosed,
 			Submitted:        class.Submitted,
 		})
+	}
+
+	err = rdb.SAdd(c.Request().Context(), GetClassesCourseClassesCountCacheKey, courseID).Err()
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	err = rdb.SAdd(c.Request().Context(), GetClassesCouseStatusCacheKey, courseID).Err()
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	err = rdb.SAdd(c.Request().Context(), GetClassesCourseUserSubmittedCacheKeyPrefix+courseID, userID).Err()
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	return c.JSON(http.StatusOK, res)
@@ -1074,6 +1151,11 @@ func (h *handlers) AddClass(c echo.Context) error {
 	}
 
 	if err := tx.Commit(); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	if err := rdb.SRem(c.Request().Context(), GetClassesCourseClassesCountCacheKey, courseID).Err(); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1157,6 +1239,13 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+
+	// 生徒&講義に紐づく提出済み有無キャッシュの更新
+	if err := rdb.SRem(c.Request().Context(), GetClassesCourseUserSubmittedCacheKeyPrefix+courseID, userID).Err(); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	// TODO GPA画面の講義に紐づく課題提出者数のキャッシュの更新
 
 	return c.NoContent(http.StatusNoContent)
 }
@@ -1250,7 +1339,7 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	if _, err := tx.Exec("UPDATE `classes` SET `submission_closed` = true WHERE `id` = ?", classID); err != nil {
+	if _, err := tx.Exec("UPDATE `classes` SET `submission_closed` = TRUE WHERE `id` = ?", classID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1466,6 +1555,7 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	// 履修登録してるユーザー分のバルクインサート
 	for _, user := range targets {
 		if _, err := tx.Exec("INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES (?, ?)", req.ID, user.ID); err != nil {
 			c.Logger().Error(err)
@@ -1530,7 +1620,7 @@ func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
 		return c.String(http.StatusNotFound, "No such announcement.")
 	}
 
-	if _, err := tx.Exec("UPDATE `unread_announcements` SET `is_deleted` = true WHERE `announcement_id` = ? AND `user_id` = ?", announcementID, userID); err != nil {
+	if _, err := tx.Exec("UPDATE `unread_announcements` SET `is_deleted` = TRUE WHERE `announcement_id` = ? AND `user_id` = ?", announcementID, userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
