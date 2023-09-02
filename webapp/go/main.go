@@ -571,7 +571,7 @@ type Score struct {
 	CourseID string `db:"course_id"`
 	ClassID  string `db:"class_id"`
 	Part     uint8  `db:"part"`
-	score    int    `db:"score"`
+	Score    int    `db:"score"`
 }
 
 // GetGrades GET /api/users/me/grades 成績取得
@@ -628,7 +628,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		" WHERE course_id IN(?)" +
 		" AND user_id = ?'" +
 		" ORDER BY part"
-	query, params, err := sqlx.In(query, courseIDs, userID)
+	query, params, err = sqlx.In(query, courseIDs, userID)
 
 	if err != nil {
 		return c.NoContent(http.StatusInternalServerError)
@@ -682,11 +682,11 @@ func (h *handlers) GetGrades(c echo.Context) error {
 
 			var myScore sql.NullInt64
 
-			// myScoresMapからclass.Score
-			tmp_score := myScoresMap[class.ID]
+			// myScoresMapからScoreを取得
+			myScore := myScoresMap[class.ID].Score
 
-			// myScoresが空の場合は、classScoresをappendして次のループへ
-			if len(tmp_score) == 0 || !tmp_score.score.Valid || tmp_score.score == 0 {
+			// myScoreが空の場合は、classScoresをappendして次のループへ
+			if !myScore.Valid {
 				classScores = append(classScores, ClassScore{
 					ClassID:    class.ID,
 					Part:       class.Part,
