@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
+	_ "github.com/mackee/pgx-replaced"
 )
 
 func GetDB(batch bool) (*sqlx.DB, error) {
