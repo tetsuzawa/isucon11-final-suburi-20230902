@@ -31,10 +31,10 @@ func GetDB(batch bool) (*sqlx.DB, error) {
 			RowsNext:             false,
 			DisableErrSkip:       false,
 			DisableQuery:         false,
-			OmitConnResetSession: true,
-			OmitConnPrepare:      true,
+			OmitConnResetSession: false,
+			OmitConnPrepare:      false,
 			OmitConnQuery:        false,
-			OmitRows:             true,
+			OmitRows:             false,
 			OmitConnectorConnect: false,
 		}),
 	)
