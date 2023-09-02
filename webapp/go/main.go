@@ -455,16 +455,49 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 
 	var errors RegisterCoursesErrorResponse
 	var newlyAdded []Course
+
+	courseIDs := make([]string, 0, len(req))
 	for _, courseReq := range req {
-		courseID := courseReq.ID
-		var course Course
-		if err := tx.GetContext(c.Request().Context(), &course, "SELECT * FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		} else if err == sql.ErrNoRows {
-			errors.CourseNotFound = append(errors.CourseNotFound, courseReq.ID)
-			continue
+		courseIDs = append(courseIDs, courseReq.ID)
+	}
+
+	query, args, err := sqlx.In("SELECT * FROM `courses` WHERE `id` IN (?) FOR SHARE", courseIDs)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	courses := make([]Course, 0)
+	if err := tx.SelectContext(c.Request().Context(), &courses, query, args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	foundIDs := make(map[string]struct{})
+	for _, courseID := range courseIDs {
+		foundIDs[courseID] = struct{}{}
+	}
+
+	var notFoundIDs []string
+	for _, courseReq := range req {
+		if _, found := foundIDs[courseReq.ID]; !found {
+			notFoundIDs = append(notFoundIDs, courseReq.ID)
 		}
+	}
+	if len(notFoundIDs) > 0 {
+		errors.CourseNotFound = append(errors.CourseNotFound, notFoundIDs...)
+	}
+
+	for _, courseReq := range courses {
+		//courseID := courseReq.ID
+		//var course Course
+		//if err := tx.GetContext(c.Request().Context(), &course, "SELECT * FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
+		//	c.Logger().Error(err)
+		//	return c.NoContent(http.StatusInternalServerError)
+		//} else if err == sql.ErrNoRows {
+		//	errors.CourseNotFound = append(errors.CourseNotFound, courseReq.ID)
+		//	continue
+		//}
+		course := courseReq
 
 		if course.Status != StatusRegistration {
 			errors.NotRegistrableStatus = append(errors.NotRegistrableStatus, course.ID)
@@ -1247,7 +1280,7 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	}
 
 	if !closed {
-		if _, err := h.DB.ExecContext(c.Request().Context(), "UPDATE `classes` SET `submission_closed` = true WHERE `id` = ?", classID); err != nil {
+		if _, err := h.DB.ExecContext(c.Request().Context(), "UPDATE `classes` SET `submission_closed` = TRUE WHERE `id` = ?", classID); err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
