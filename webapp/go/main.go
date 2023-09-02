@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -21,7 +23,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/samber/lo"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -38,20 +39,21 @@ type handlers struct {
 }
 
 func main() {
-	tp, _ := initTracer(context.Background())
-	defer func() {
-		if err := tp.Shutdown(context.Background()); err != nil {
-			panic(err)
-		}
-	}()
+	//tp, _ := initTracer(context.Background())
+	//defer func() {
+	//	if err := tp.Shutdown(context.Background()); err != nil {
+	//		panic(err)
+	//	}
+	//}()
 
 	e := echo.New()
-	e.Debug = GetEnv("DEBUG", "") == "true"
+	//e.Debug = GetEnv("DEBUG", "") == "true"
+	e.Debug = false
 	e.Server.Addr = fmt.Sprintf(":%v", GetEnv("PORT", "7000"))
 	e.HideBanner = true
 
-	e.Use(otelecho.Middleware("isucholar"))
-	e.Use(middleware.Logger())
+	//e.Use(otelecho.Middleware("isucholar"))
+	//e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte("trapnomura"))))
 
@@ -454,37 +456,111 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 
 	var errors RegisterCoursesErrorResponse
 	var newlyAdded []Course
+
+	courseIDs := make([]string, 0, len(req))
 	for _, courseReq := range req {
-		courseID := courseReq.ID
-		var course Course
-		if err := tx.GetContext(c.Request().Context(), &course, "SELECT * FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		} else if err == sql.ErrNoRows {
-			errors.CourseNotFound = append(errors.CourseNotFound, courseReq.ID)
-			continue
+		courseIDs = append(courseIDs, courseReq.ID)
+	}
+
+	query, args, err := sqlx.In("SELECT * FROM `courses` WHERE `id` IN (?) FOR SHARE", courseIDs)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	var courses []Course
+	if err := tx.SelectContext(c.Request().Context(), &courses, query, args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	foundIDs := make(map[string]struct{})
+	for _, course := range courses {
+		foundIDs[course.ID] = struct{}{}
+	}
+
+	var notFoundIDs []string
+	for _, courseReq := range req {
+		if _, found := foundIDs[courseReq.ID]; !found {
+			notFoundIDs = append(notFoundIDs, courseReq.ID)
 		}
+	}
+	if len(notFoundIDs) > 0 {
+		errors.CourseNotFound = append(errors.CourseNotFound, notFoundIDs...)
+	}
+
+	for _, courseReq := range courses {
+		//courseID := courseReq.ID
+		//var course Course
+		//if err := tx.GetContext(c.Request().Context(), &course, "SELECT * FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
+		//	c.Logger().Error(err)
+		//	return c.NoContent(http.StatusInternalServerError)
+		//} else if err == sql.ErrNoRows {
+		//	errors.CourseNotFound = append(errors.CourseNotFound, courseReq.ID)
+		//	continue
+		//}
+		course := courseReq
 
 		if course.Status != StatusRegistration {
 			errors.NotRegistrableStatus = append(errors.NotRegistrableStatus, course.ID)
 			continue
 		}
+	}
 
-		// すでに履修登録済みの科目は無視する
-		var count int
-		if err := tx.GetContext(c.Request().Context(), &count, "SELECT COUNT(*) FROM `registrations` WHERE `course_id` = ? AND `user_id` = ?", course.ID, userID); err != nil {
+	// 1. course.IDのリストを作成
+	courseIDss := make([]string, 0, len(courses))
+	for _, course := range courses {
+		courseIDss = append(courseIDss, course.ID)
+	}
+
+	// coursesが空でない場合のみクエリを実行
+	var registeredCourseIDs []string
+	if len(courseIDss) > 0 {
+		query := `
+        SELECT course_id 
+        FROM registrations 
+        WHERE user_id = ? AND course_id IN (?)
+    `
+		query, args, err := sqlx.In(query, userID, courseIDss)
+		if err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
-		if count > 0 {
-			continue
-		}
 
-		newlyAdded = append(newlyAdded, course)
+		err = tx.SelectContext(c.Request().Context(), &registeredCourseIDs, tx.Rebind(query), args...)
+		if err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
 	}
 
+	// 3. マップを使用して高速に存在チェック
+	registeredMap := make(map[string]struct{})
+	for _, courseID := range registeredCourseIDs {
+		registeredMap[courseID] = struct{}{}
+	}
+
+	for _, course := range courses {
+		if _, registered := registeredMap[course.ID]; !registered {
+			newlyAdded = append(newlyAdded, course)
+		}
+	}
+
+	//for _, courseReq := range courses {
+	//	// すでに履修登録済みの科目は無視する
+	//	var count int
+	//	if err := tx.GetContext(c.Request().Context(), &count, "SELECT COUNT(*) FROM `registrations` WHERE `course_id` = ? AND `user_id` = ?", course.ID, userID); err != nil {
+	//		c.Logger().Error(err)
+	//		return c.NoContent(http.StatusInternalServerError)
+	//	}
+	//	if count > 0 {
+	//		continue
+	//	}
+	//
+	//	newlyAdded = append(newlyAdded, course)
+	//}
+
 	var alreadyRegistered []Course
-	query := "SELECT `courses`.*" +
+	query = "SELECT `courses`.*" +
 		" FROM `courses`" +
 		" JOIN `registrations` ON `courses`.`id` = `registrations`.`course_id`" +
 		" WHERE `courses`.`status` != ? AND `registrations`.`user_id` = ?"
@@ -1286,8 +1362,8 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 }
 
 type Score struct {
-	UserCode string `json:"user_code"`
-	Score    int    `json:"score"`
+	UserCode string `json:"user_code" db:"user_code"`
+	Score    int    `json:"score" db:"score"`
 }
 
 // RegisterScores PUT /api/courses/:courseID/classes/:classID/assignments/scores 採点結果登録
@@ -1317,12 +1393,46 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.String(http.StatusBadRequest, "Invalid format.")
 	}
+	scoreMap := lo.SliceToMap(req, func(s Score) (string, int) {
+		return s.UserCode, s.Score
+	})
+	userCodes := lo.Keys(scoreMap)
 
-	for _, score := range req {
-		if _, err := tx.ExecContext(c.Request().Context(), "UPDATE `submissions` SET score = ? FROM `users` WHERE `users`.`id` = `submissions`.`user_id` AND `users`.`code` = ? AND `class_id` = ?", score.Score, score.UserCode, classID); err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
+	var ss []Submission
+	query, args, err := sqlx.In(
+		"SELECT submissions.user_id, users.code AS user_code, submissions.class_id, submissions.file_name FROM submissions INNER JOIN users ON submissions.user_id = users.id WHERE users.code IN (?) AND submissions.class_id = ?",
+		userCodes,
+		classID,
+	)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	if err := tx.SelectContext(
+		c.Request().Context(),
+		&ss,
+		query,
+		args...,
+	); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	for i, s := range ss {
+		ss[i] = Submission{
+			UserID:   s.UserID,
+			FileName: s.FileName,
+			ClassID:  classID,
+			Score:    scoreMap[s.UserCode],
 		}
+	}
+
+	if _, err := tx.NamedExecContext(
+		c.Request().Context(),
+		"INSERT INTO submissions (user_id, class_id, file_name, score) VALUES (:user_id, :class_id, :file_name, :score) ON CONFLICT (user_id, class_id) DO UPDATE SET score = excluded.score",
+		ss,
+	); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -1337,81 +1447,72 @@ type Submission struct {
 	UserID   string `db:"user_id"`
 	UserCode string `db:"user_code"`
 	FileName string `db:"file_name"`
+	ClassID  string `db:"class_id"`
+	Score    int    `db:"score"`
 }
 
 // DownloadSubmittedAssignments GET /api/courses/:courseID/classes/:classID/assignments/export 提出済みの課題ファイルをzip形式で一括ダウンロード
 func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	classID := c.Param("classID")
 
-	tx, err := h.DB.BeginTxx(c.Request().Context(), nil)
-	if err != nil {
+	var closed bool
+	if err := h.DB.GetContext(c.Request().Context(), &closed, "SELECT submission_closed FROM `classes` WHERE `id` = ?", classID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
-	}
-	defer tx.Rollback()
-
-	var exists int
-	if err := tx.GetContext(c.Request().Context(), &exists, "SELECT 1 FROM `classes` WHERE `id` = ? FOR UPDATE", classID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if exists == 0 {
+	} else if errors.Is(err, sql.ErrNoRows) {
 		return c.String(http.StatusNotFound, "No such class.")
 	}
+
+	if !closed {
+		if _, err := h.DB.ExecContext(c.Request().Context(), "UPDATE `classes` SET `submission_closed` = TRUE WHERE `id` = ?", classID); err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+	}
+
 	var submissions []Submission
 	query := "SELECT `submissions`.`user_id`, `submissions`.`file_name`, `users`.`code` AS `user_code`" +
 		" FROM `submissions`" +
 		" JOIN `users` ON `users`.`id` = `submissions`.`user_id`" +
 		" WHERE `class_id` = ?"
-	if err := tx.SelectContext(c.Request().Context(), &submissions, query, classID); err != nil {
+	if err := h.DB.SelectContext(c.Request().Context(), &submissions, query, classID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	zipFilePath := AssignmentsDirectory + classID + ".zip"
-	if err := createSubmissionsZip(c.Request().Context(), zipFilePath, classID, submissions); err != nil {
+	bs := &bytes.Buffer{}
+	if err := createSubmissionsZip(c.Request().Context(), bs, classID, submissions); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	if _, err := tx.ExecContext(c.Request().Context(), "UPDATE `classes` SET `submission_closed` = TRUE WHERE `id` = ?", classID); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	if err := tx.Commit(); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	return c.File(zipFilePath)
+	return c.Blob(http.StatusOK, "application/zip", bs.Bytes())
 }
 
-func createSubmissionsZip(ctx context.Context, zipFilePath string, classID string, submissions []Submission) error {
+func createSubmissionsZip(ctx context.Context, w io.Writer, classID string, submissions []Submission) (err error) {
 	ctx, span := tracer.Start(ctx, "createSubmmissionsZip")
 	defer span.End()
 
-	tmpDir := AssignmentsDirectory + classID + "/"
-	if err := exec.Command("rm", "-rf", tmpDir).Run(); err != nil {
-		return err
-	}
-	if err := exec.Command("mkdir", tmpDir).Run(); err != nil {
-		return err
-	}
+	zw := zip.NewWriter(w)
+	defer func() {
+		err = zw.Close()
+	}()
 
 	// ファイル名を指定の形式に変更
 	for _, submission := range submissions {
-		if err := exec.Command(
-			"cp",
-			AssignmentsDirectory+classID+"-"+submission.UserID+".pdf",
-			tmpDir+submission.UserCode+"-"+submission.FileName,
-		).Run(); err != nil {
+		r, err := os.Open(AssignmentsDirectory + classID + "-" + submission.UserID + ".pdf")
+		if err != nil {
+			return err
+		}
+		z, err := zw.Create(submission.UserCode + "-" + submission.FileName)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(z, r); err != nil {
 			return err
 		}
 	}
-
-	// -i 'tmpDir/*': 空zipを許す
-	return exec.Command("zip", "-j", "-r", zipFilePath, tmpDir, "-i", tmpDir+"*").Run()
+	return nil
 }
 
 // ---------- Announcement API ----------
