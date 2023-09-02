@@ -20,7 +20,7 @@ func GetDB(batch bool) (*sqlx.DB, error) {
 	mysqlConfig.ParseTime = true
 	mysqlConfig.MultiStatements = batch
 
-	db, err := otelsql.OpenDB(
+	db, err := otelsql.Open(
 		"mysql",
 		mysqlConfig.FormatDSN(),
 		otelsql.WithAttributes(
