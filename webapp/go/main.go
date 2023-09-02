@@ -7,16 +7,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"os"
-	"os/exec"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
-
 	"github.com/gorilla/sessions"
 	"github.com/jackc/pgconn"
 	"github.com/jmoiron/sqlx"
@@ -26,6 +16,15 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/samber/lo"
 	"golang.org/x/crypto/bcrypt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
 )
 
 const (
@@ -1072,7 +1071,7 @@ type GetClassResponse struct {
 
 const GetClassesCourseClassesCountCacheKey = "getclasses_course_classes_count"
 const GetClassesCourseStatusChangedCacheKey = "getclasses_course_status"
-const GetClassesCourseUserSubmittedChangedCacheKeyPrefix = "getclasses_course_user_submitted_"
+const GetClassesCourseUserSubmittedChangedCacheKey = "getclasses_course_user_submitted"
 
 // GetClasses GET /api/courses/:courseID/classes 科目に紐づく講義一覧の取得
 // 変化がなければ304 not modifiedを返したい
@@ -1113,39 +1112,49 @@ func (h *handlers) GetClasses(c echo.Context) error {
 		return c.String(http.StatusNotFound, "No such course.")
 	}
 
-	// 304 not modified のための cache
-	courseClassesCountChanged, err := rdb.SIsMember(c.Request().Context(), GetClassesCourseClassesCountCacheKey, courseID).Result()
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	courseStatusChanged, err := rdb.SIsMember(c.Request().Context(), GetClassesCourseStatusChangedCacheKey, courseID).Result()
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	courseUserSubmittedChanged, err := rdb.SIsMember(c.Request().Context(), GetClassesCourseUserSubmittedChangedCacheKeyPrefix+":"+courseID, userID).Result()
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
+	// クライアントからのIf-Modified-Sinceヘッダーを取得
+	ifModifiedSinceHeader := c.Request().Header.Get("If-Modified-Since")
+	if ifModifiedSinceHeader != "" {
+		//ifModifiedSinceTime, err := http.ParseTime(ifModifiedSinceHeader)
+		//if err == nil && lastModified.Before(ifModifiedSinceTime.Add(1*time.Second)) {
+		//	w.WriteHeader(http.StatusNotModified)
+		//	return
+		//}
 
-	// 304 not modifiedを返せるなら返す
-	if isAdmin {
-		if !courseClassesCountChanged && !courseStatusChanged {
-			if err := tx.Commit(); err != nil {
-				c.Logger().Error(err)
-				return c.NoContent(http.StatusInternalServerError)
-			}
-			return c.NoContent(http.StatusNotModified)
+		// 304 not modified のための cache
+		courseClassesCountChanged, err := rdb.SIsMember(c.Request().Context(), GetClassesCourseClassesCountCacheKey, courseID).Result()
+		if err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
 		}
-	} else {
-		if !courseClassesCountChanged && !courseStatusChanged && !courseUserSubmittedChanged {
-			if err := tx.Commit(); err != nil {
-				c.Logger().Error(err)
-				return c.NoContent(http.StatusInternalServerError)
+		courseStatusChanged, err := rdb.SIsMember(c.Request().Context(), GetClassesCourseStatusChangedCacheKey, courseID).Result()
+		if err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		courseUserSubmittedChanged, err := rdb.SIsMember(c.Request().Context(), GetClassesCourseUserSubmittedChangedCacheKeyPrefix+":"+courseID, userID).Result()
+		if err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+
+		// 304 not modifiedを返せるなら返す
+		if isAdmin {
+			if !courseClassesCountChanged && !courseStatusChanged {
+				if err := tx.Commit(); err != nil {
+					c.Logger().Error(err)
+					return c.NoContent(http.StatusInternalServerError)
+				}
+				return c.NoContent(http.StatusNotModified)
 			}
-			return c.NoContent(http.StatusNotModified)
+		} else {
+			if !courseClassesCountChanged && !courseStatusChanged && !courseUserSubmittedChanged {
+				if err := tx.Commit(); err != nil {
+					c.Logger().Error(err)
+					return c.NoContent(http.StatusInternalServerError)
+				}
+				return c.NoContent(http.StatusNotModified)
+			}
 		}
 	}
 
@@ -1188,12 +1197,13 @@ func (h *handlers) GetClasses(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	err = rdb.SRem(c.Request().Context(), GetClassesCourseUserSubmittedChangedCacheKeyPrefix+courseID, userID).Err()
+	err = rdb.SRem(c.Request().Context(), GetClassesCourseUserSubmittedChangedCacheKey, courseID+userID).Err()
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	c.Response().Header().Set("ETag", userID+courseID+time.Now().String())
+	c.Response().Header().Set("Last-Modified", time.Now().Format(http.TimeFormat))
+	c.Response().Header().Set("Cache-Control", "must-revalidate")
 
 	return c.JSON(http.StatusOK, res)
 }
@@ -1346,7 +1356,7 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	}
 
 	// 生徒&講義に紐づく提出済み有無キャッシュの更新
-	if err := rdb.SAdd(c.Request().Context(), GetClassesCourseUserSubmittedChangedCacheKeyPrefix+courseID, userID).Err(); err != nil {
+	if err := rdb.SAdd(c.Request().Context(), GetClassesCourseUserSubmittedChangedCacheKey, courseID+userID).Err(); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
