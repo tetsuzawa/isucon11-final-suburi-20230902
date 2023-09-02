@@ -504,19 +504,60 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 			errors.NotRegistrableStatus = append(errors.NotRegistrableStatus, course.ID)
 			continue
 		}
+	}
 
-		// すでに履修登録済みの科目は無視する
-		var count int
-		if err := tx.GetContext(c.Request().Context(), &count, "SELECT COUNT(*) FROM `registrations` WHERE `course_id` = ? AND `user_id` = ?", course.ID, userID); err != nil {
+	// 1. course.IDのリストを作成
+	courseIDss := make([]string, 0, len(courses))
+	for _, course := range courses {
+		courseIDss = append(courseIDss, course.ID)
+	}
+
+	// coursesが空でない場合のみクエリを実行
+	var registeredCourseIDs []string
+	if len(courseIDss) > 0 {
+		query := `
+        SELECT course_id 
+        FROM registrations 
+        WHERE user_id = ? AND course_id IN (?)
+    `
+		query, args, err := sqlx.In(query, userID, courseIDss)
+		if err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
-		if count > 0 {
-			continue
-		}
 
-		newlyAdded = append(newlyAdded, course)
+		err = tx.SelectContext(c.Request().Context(), &registeredCourseIDs, tx.Rebind(query), args...)
+		if err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
 	}
+
+	// 3. マップを使用して高速に存在チェック
+	registeredMap := make(map[string]struct{})
+	for _, courseID := range registeredCourseIDs {
+		registeredMap[courseID] = struct{}{}
+	}
+
+	for _, course := range courses {
+		if _, registered := registeredMap[course.ID]; !registered {
+			newlyAdded = append(newlyAdded, course)
+		}
+	}
+
+	//for _, courseReq := range courses {
+	//	// すでに履修登録済みの科目は無視する
+	//	var count int
+	//	if err := tx.GetContext(c.Request().Context(), &count, "SELECT COUNT(*) FROM `registrations` WHERE `course_id` = ? AND `user_id` = ?", course.ID, userID); err != nil {
+	//		c.Logger().Error(err)
+	//		return c.NoContent(http.StatusInternalServerError)
+	//	}
+	//	if count > 0 {
+	//		continue
+	//	}
+	//
+	//	newlyAdded = append(newlyAdded, course)
+	//}
 
 	var alreadyRegistered []Course
 	query = "SELECT `courses`.*" +
