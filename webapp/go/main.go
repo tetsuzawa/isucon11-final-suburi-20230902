@@ -1370,6 +1370,14 @@ type Score struct {
 func (h *handlers) RegisterScores(c echo.Context) error {
 	classID := c.Param("classID")
 
+	var req []Score
+	if err := c.Bind(&req); err != nil {
+		return c.String(http.StatusBadRequest, "Invalid format.")
+	}
+	if len(req) == 0 {
+		return c.NoContent(http.StatusNoContent)
+	}
+
 	tx, err := h.DB.BeginTxx(c.Request().Context(), nil)
 	if err != nil {
 		c.Logger().Error(err)
@@ -1389,10 +1397,6 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "This assignment is not closed yet.")
 	}
 
-	var req []Score
-	if err := c.Bind(&req); err != nil {
-		return c.String(http.StatusBadRequest, "Invalid format.")
-	}
 	scoreMap := lo.SliceToMap(req, func(s Score) (string, int) {
 		return s.UserCode, s.Score
 	})
