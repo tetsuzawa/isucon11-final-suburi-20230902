@@ -923,7 +923,7 @@ func (h *handlers) SetCourseStatus(c echo.Context) error {
 	defer tx.Rollback()
 
 	var exists int
-	if err := tx.Get(&exists, "SELECT 1 FROM `courses` WHERE `id` = ? FOR UPDATE", courseID); err != nil {
+	if err := tx.Get(&exists, "SELECT 1 FROM `courses` WHERE `id` = ? FOR UPDATE", courseID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1232,7 +1232,7 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	defer tx.Rollback()
 
 	var exists int
-	if err := tx.Get(&exists, "SELECT 1 FROM `classes` WHERE `id` = ? FOR UPDATE", classID); err != nil {
+	if err := tx.Get(&exists, "SELECT 1 FROM `classes` WHERE `id` = ? FOR UPDATE", classID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
