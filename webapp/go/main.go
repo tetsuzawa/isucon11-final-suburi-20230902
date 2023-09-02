@@ -949,7 +949,7 @@ func (h *handlers) SetCourseStatus(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	// 講義に紐づく提出締め切り有無の更新
-	if err := rdb.SRem(c.Request().Context(), GetClassesCouseStatusCacheKey, req.Status).Err(); err != nil {
+	if err := rdb.SRem(c.Request().Context(), GetClassesCouseStatusCacheKey, courseID).Err(); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
