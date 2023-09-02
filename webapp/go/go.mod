@@ -1,17 +1,16 @@
-module github.com/isucon/isucon11-final/webapp/go
+module github.com/tetsuzawa/isucon11-final-suburi-20230902/webapp/go
 
-go 1.21
-
-toolchain go1.21.0
+go 1.21.0
 
 require (
 	github.com/XSAM/otelsql v0.23.0
-	github.com/go-sql-driver/mysql v1.6.0
 	github.com/gorilla/sessions v1.2.1
-	github.com/jmoiron/sqlx v1.3.4
-	github.com/labstack/echo-contrib v0.11.0
+	github.com/jackc/pgconn v1.14.1
+	github.com/jmoiron/sqlx v1.3.5
+	github.com/labstack/echo-contrib v0.15.0
 	github.com/labstack/echo/v4 v4.11.1
-	github.com/oklog/ulid/v2 v2.0.2
+	github.com/mackee/pgx-replaced v0.0.0-20230218024503-3dae8b2f6855
+	github.com/oklog/ulid/v2 v2.1.0
 	go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho v0.43.0
 	go.opentelemetry.io/otel v1.17.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.17.0
@@ -28,9 +27,17 @@ require (
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/securecookie v1.1.1 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0 // indirect
+	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
+	github.com/jackc/pgio v1.0.0 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgproto3/v2 v2.3.2 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
+	github.com/jackc/pgtype v1.12.0 // indirect
+	github.com/jackc/pgx/v4 v4.17.1 // indirect
 	github.com/labstack/gommon v0.4.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
+	github.com/shogo82148/go-sql-proxy v0.6.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.17.0 // indirect

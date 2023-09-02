@@ -14,8 +14,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
+	"github.com/jackc/pgconn"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
@@ -25,11 +25,11 @@ import (
 )
 
 const (
-	SQLDirectory              = "../sql/"
-	AssignmentsDirectory      = "../assignments/"
-	InitDataDirectory         = "../data/"
-	SessionName               = "isucholar_go"
-	mysqlErrNumDuplicateEntry = 1062
+	SQLDirectory           = "../sql/postgresql/"
+	AssignmentsDirectory   = "../assignments/"
+	InitDataDirectory      = "../data/"
+	SessionName            = "isucholar_go"
+	pgErrNumDuplicateEntry = "23505"
 )
 
 type handlers struct {
@@ -54,7 +54,10 @@ func main() {
 	e.Use(middleware.Recover())
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte("trapnomura"))))
 
-	db, _ := GetDB(false)
+	db, err := GetDB(false)
+	if err != nil {
+		e.Logger.Fatal(err)
+	}
 	db.SetMaxOpenConns(10)
 
 	h := &handlers{
@@ -504,7 +507,7 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	}
 
 	for _, course := range newlyAdded {
-		_, err = tx.ExecContext(c.Request().Context(), "INSERT INTO `registrations` (`course_id`, `user_id`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `course_id` = VALUES(`course_id`), `user_id` = VALUES(`user_id`)", course.ID, userID)
+		_, err = tx.ExecContext(c.Request().Context(), "INSERT INTO `registrations` (`course_id`, `user_id`) VALUES (?, ?) ON CONFLICT (course_id, user_id) DO NOTHING", course.ID, userID)
 		if err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
@@ -633,7 +636,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 
 		// この科目を履修している学生のTotalScore一覧を取得
 		var totals []int
-		query := "SELECT IFNULL(SUM(`submissions`.`score`), 0) AS `total_score`" +
+		query := "SELECT COALESCE(SUM(`submissions`.`score`), 0) AS `total_score`" +
 			" FROM `users`" +
 			" JOIN `registrations` ON `users`.`id` = `registrations`.`user_id`" +
 			" JOIN `courses` ON `registrations`.`course_id` = `courses`.`id`" +
@@ -670,7 +673,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	// GPAの統計値
 	// 一つでも修了した科目がある学生のGPA一覧
 	var gpas []float64
-	query = "SELECT IFNULL(SUM(`submissions`.`score` * `courses`.`credit`), 0) / 100 / `credits`.`credits` AS `gpa`" +
+	query = "SELECT COALESCE(SUM(`submissions`.`score` * `courses`.`credit`)::float, 0) / 100 / `credits`.`credits`::float AS `gpa`" +
 		" FROM `users`" +
 		" JOIN (" +
 		"     SELECT `users`.`id` AS `user_id`, SUM(`courses`.`credit`) AS `credits`" +
@@ -684,7 +687,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		" LEFT JOIN `classes` ON `courses`.`id` = `classes`.`course_id`" +
 		" LEFT JOIN `submissions` ON `users`.`id` = `submissions`.`user_id` AND `submissions`.`class_id` = `classes`.`id`" +
 		" WHERE `users`.`type` = ?" +
-		" GROUP BY `users`.`id`"
+		" GROUP BY `users`.`id`, `credits`.`credits`"
 	if err := h.DB.SelectContext(c.Request().Context(), &gpas, query, StatusClosed, StatusClosed, Student); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -856,7 +859,8 @@ func (h *handlers) AddCourse(c echo.Context) error {
 	_, err = h.DB.ExecContext(c.Request().Context(), "INSERT INTO `courses` (`id`, `code`, `type`, `name`, `description`, `credit`, `period`, `day_of_week`, `teacher_id`, `keywords`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		courseID, req.Code, req.Type, req.Name, req.Description, req.Credit, req.Period, req.DayOfWeek, userID, req.Keywords)
 	if err != nil {
-		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
+		var pgerr *pgconn.PgError
+		if errors.As(err, &pgerr) && pgerr.Code == pgErrNumDuplicateEntry {
 			var course Course
 			if err := h.DB.GetContext(c.Request().Context(), &course, "SELECT * FROM `courses` WHERE `code` = ?", req.Code); err != nil {
 				c.Logger().Error(err)
@@ -928,12 +932,12 @@ func (h *handlers) SetCourseStatus(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var count int
-	if err := tx.GetContext(c.Request().Context(), &count, "SELECT COUNT(*) FROM `courses` WHERE `id` = ? FOR UPDATE", courseID); err != nil {
+	var exists int
+	if err := tx.GetContext(c.Request().Context(), &exists, "SELECT 1 FROM `courses` WHERE `id` = ? FOR UPDATE", courseID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	if count == 0 {
+	if exists == 0 {
 		return c.String(http.StatusNotFound, "No such course.")
 	}
 
@@ -1068,7 +1072,8 @@ func (h *handlers) AddClass(c echo.Context) error {
 	if _, err := tx.ExecContext(c.Request().Context(), "INSERT INTO `classes` (`id`, `course_id`, `part`, `title`, `description`) VALUES (?, ?, ?, ?, ?)",
 		classID, courseID, req.Part, req.Title, req.Description); err != nil {
 		_ = tx.Rollback()
-		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
+		var pgerr *pgconn.PgError
+		if errors.As(err, &pgerr) && pgerr.Code == pgErrNumDuplicateEntry {
 			var class Class
 			if err := h.DB.GetContext(c.Request().Context(), &class, "SELECT * FROM `classes` WHERE `course_id` = ? AND `part` = ?", courseID, req.Part); err != nil {
 				c.Logger().Error(err)
@@ -1146,7 +1151,7 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	}
 	defer file.Close()
 
-	if _, err := tx.ExecContext(c.Request().Context(), "INSERT INTO `submissions` (`user_id`, `class_id`, `file_name`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `file_name` = VALUES(`file_name`)", userID, classID, header.Filename); err != nil {
+	if _, err := tx.ExecContext(c.Request().Context(), "INSERT INTO `submissions` (`user_id`, `class_id`, `file_name`) VALUES (?, ?, ?) ON CONFLICT (user_id, class_id) DO UPDATE SET file_name = ?", userID, classID, header.Filename, header.Filename); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1205,7 +1210,7 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 	}
 
 	for _, score := range req {
-		if _, err := tx.ExecContext(c.Request().Context(), "UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ? WHERE `users`.`code` = ? AND `class_id` = ?", score.Score, score.UserCode, classID); err != nil {
+		if _, err := tx.ExecContext(c.Request().Context(), "UPDATE `submissions` SET score = ? FROM `users` WHERE `users`.`id` = `submissions`.`user_id` AND `users`.`code` = ? AND `class_id` = ?", score.Score, score.UserCode, classID); err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
@@ -1236,12 +1241,12 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var classCount int
-	if err := tx.GetContext(c.Request().Context(), &classCount, "SELECT COUNT(*) FROM `classes` WHERE `id` = ? FOR UPDATE", classID); err != nil {
+	var exists int
+	if err := tx.GetContext(c.Request().Context(), &exists, "SELECT 1 FROM `classes` WHERE `id` = ? FOR UPDATE", classID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	if classCount == 0 {
+	if exists == 0 {
 		return c.String(http.StatusNotFound, "No such class.")
 	}
 	var submissions []Submission
@@ -1452,7 +1457,8 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 	if _, err := tx.ExecContext(c.Request().Context(), "INSERT INTO `announcements` (`id`, `course_id`, `title`, `message`) VALUES (?, ?, ?, ?)",
 		req.ID, req.CourseID, req.Title, req.Message); err != nil {
 		_ = tx.Rollback()
-		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
+		var pgerr *pgconn.PgError
+		if errors.As(err, &pgerr) && pgerr.Code == pgErrNumDuplicateEntry {
 			var announcement Announcement
 			if err := h.DB.GetContext(c.Request().Context(), &announcement, "SELECT * FROM `announcements` WHERE `id` = ?", req.ID); err != nil {
 				c.Logger().Error(err)

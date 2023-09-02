@@ -1,35 +1,35 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/XSAM/otelsql"
-	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+
+	_ "github.com/mackee/pgx-replaced"
 )
 
 func GetDB(batch bool) (*sqlx.DB, error) {
-	mysqlConfig := mysql.NewConfig()
-	mysqlConfig.Net = "tcp"
-	mysqlConfig.Addr = GetEnv("MYSQL_HOSTNAME", "127.0.0.1") + ":" + GetEnv("MYSQL_PORT", "3306")
-	mysqlConfig.User = GetEnv("MYSQL_USER", "isucon")
-	mysqlConfig.Passwd = GetEnv("MYSQL_PASS", "isucon")
-	mysqlConfig.DBName = GetEnv("MYSQL_DATABASE", "isucholar")
-	mysqlConfig.Params = map[string]string{
-		"time_zone": "'+00:00'",
-	}
-	mysqlConfig.ParseTime = true
-	mysqlConfig.MultiStatements = batch
+	dsn := fmt.Sprintf(
+		"postgres://%s:%s@%s:%v/%s?sslmode=disable",
+		GetEnv("PG_USER", "isucon"),
+		GetEnv("PG_PASS", "isucon"),
+		GetEnv("PG_HOSTNAME", "127.0.0.1"),
+		GetEnv("PG_PORT", "5432"),
+		GetEnv("PG_DATABASE", "isucholar"),
+	)
 
 	db, err := otelsql.Open(
-		"mysql",
-		mysqlConfig.FormatDSN(),
+		"pgx-replaced",
+		dsn,
 		otelsql.WithAttributes(
-			semconv.DBSystemMySQL,
+			semconv.DBSystemPostgreSQL,
 		),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return sqlx.NewDb(db, "mysql"), nil
+	return sqlx.NewDb(db, "pgx"), nil
 }
