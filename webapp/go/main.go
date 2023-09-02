@@ -1238,7 +1238,12 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	for i, s := range ss {
-		ss[i].Score = scoreMap[s.UserCode]
+		ss[i] = Submission{
+			UserID:   s.UserID,
+			FileName: s.FileName,
+			ClassID:  classID,
+			Score:    scoreMap[s.UserCode],
+		}
 	}
 
 	if _, err := tx.NamedExecContext(
