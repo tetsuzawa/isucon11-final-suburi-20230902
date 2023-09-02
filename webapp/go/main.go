@@ -594,7 +594,13 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	query = "SELECT *" +
 		" FROM `classes`" +
 		" WHERE `course_id` IN (?)"
-	if err := h.DB.Select(&classes, query, courseIDs); err != nil {
+	query, params, err := sqlx.In(query, courseIDs)
+
+	if err != nil {
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	if err := h.DB.Select(&classes, query, params...); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
