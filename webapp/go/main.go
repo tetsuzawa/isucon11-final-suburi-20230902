@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -1267,75 +1269,64 @@ type Submission struct {
 func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	classID := c.Param("classID")
 
-	tx, err := h.DB.BeginTxx(c.Request().Context(), nil)
-	if err != nil {
+	var closed bool
+	if err := h.DB.GetContext(c.Request().Context(), &closed, "SELECT submission_closed FROM `classes` WHERE `id` = ?", classID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
-	}
-	defer tx.Rollback()
-
-	var exists int
-	if err := tx.GetContext(c.Request().Context(), &exists, "SELECT 1 FROM `classes` WHERE `id` = ? FOR UPDATE", classID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if exists == 0 {
+	} else if errors.Is(err, sql.ErrNoRows) {
 		return c.String(http.StatusNotFound, "No such class.")
 	}
+
+	if !closed {
+		if _, err := h.DB.ExecContext(c.Request().Context(), "UPDATE `classes` SET `submission_closed` = true WHERE `id` = ?", classID); err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+	}
+
 	var submissions []Submission
 	query := "SELECT `submissions`.`user_id`, `submissions`.`file_name`, `users`.`code` AS `user_code`" +
 		" FROM `submissions`" +
 		" JOIN `users` ON `users`.`id` = `submissions`.`user_id`" +
 		" WHERE `class_id` = ?"
-	if err := tx.SelectContext(c.Request().Context(), &submissions, query, classID); err != nil {
+	if err := h.DB.SelectContext(c.Request().Context(), &submissions, query, classID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	zipFilePath := AssignmentsDirectory + classID + ".zip"
-	if err := createSubmissionsZip(c.Request().Context(), zipFilePath, classID, submissions); err != nil {
+	bs := &bytes.Buffer{}
+	if err := createSubmissionsZip(c.Request().Context(), bs, classID, submissions); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	if _, err := tx.ExecContext(c.Request().Context(), "UPDATE `classes` SET `submission_closed` = TRUE WHERE `id` = ?", classID); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	if err := tx.Commit(); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	return c.File(zipFilePath)
+	return c.Blob(http.StatusOK, "application/zip", bs.Bytes())
 }
 
-func createSubmissionsZip(ctx context.Context, zipFilePath string, classID string, submissions []Submission) error {
+func createSubmissionsZip(ctx context.Context, w io.Writer, classID string, submissions []Submission) (err error) {
 	ctx, span := tracer.Start(ctx, "createSubmmissionsZip")
 	defer span.End()
 
-	tmpDir := AssignmentsDirectory + classID + "/"
-	if err := exec.Command("rm", "-rf", tmpDir).Run(); err != nil {
-		return err
-	}
-	if err := exec.Command("mkdir", tmpDir).Run(); err != nil {
-		return err
-	}
+	zw := zip.NewWriter(w)
+	defer func() {
+		err = zw.Close()
+	}()
 
 	// ファイル名を指定の形式に変更
 	for _, submission := range submissions {
-		if err := exec.Command(
-			"cp",
-			AssignmentsDirectory+classID+"-"+submission.UserID+".pdf",
-			tmpDir+submission.UserCode+"-"+submission.FileName,
-		).Run(); err != nil {
+		r, err := os.Open(AssignmentsDirectory + classID + "-" + submission.UserID + ".pdf")
+		if err != nil {
+			return err
+		}
+		z, err := zw.Create(submission.UserCode + "-" + submission.FileName)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(z, r); err != nil {
 			return err
 		}
 	}
-
-	// -i 'tmpDir/*': 空zipを許す
-	return exec.Command("zip", "-j", "-r", zipFilePath, tmpDir, "-i", tmpDir+"*").Run()
+	return nil
 }
 
 // ---------- Announcement API ----------
