@@ -467,15 +467,15 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	courses := make([]Course, 0)
+	var courses []Course
 	if err := tx.SelectContext(c.Request().Context(), &courses, query, args...); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	foundIDs := make(map[string]struct{})
-	for _, courseID := range courseIDs {
-		foundIDs[courseID] = struct{}{}
+	for _, course := range courses {
+		foundIDs[course.ID] = struct{}{}
 	}
 
 	var notFoundIDs []string
