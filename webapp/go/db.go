@@ -13,7 +13,7 @@ func GetDB(batch bool) (*sqlx.DB, error) {
 		GetEnv("PG_PASS", "isucon"),
 		GetEnv("PG_HOSTNAME", "127.0.0.1"),
 		GetEnv("PG_PORT", "5432"),
-		GetEnv("PG_DATABASE", "isucon"),
+		GetEnv("PG_DATABASE", "isucholar"),
 	)
 
 	return sqlx.Open("pgx-replaced", dsn)
