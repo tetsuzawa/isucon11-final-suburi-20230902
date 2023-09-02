@@ -20,6 +20,7 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/samber/lo"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -650,6 +651,29 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	courseResults := make([]CourseResult, 0, len(registeredCourses))
 	myGPA := 0.0
 	myCredits := 0
+	classIDs := lo.FlatMap(lo.Values(classesMap), func(classes []Class, _ int) []string {
+		return lo.Map(classes, func(class Class, _ int) string {
+			return class.CourseID
+		})
+	})
+	q, args, err := sqlx.In("SELECT class_id, COUNT(*) AS cnt FROM `submissions` WHERE `class_id` IN (?) GROUP BY class_id", classIDs)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	type submissionsCount struct {
+		ClassID string `db:"class_id"`
+		Cnt     int    `db:"cnt"`
+	}
+	var submissionsCounts []submissionsCount
+	if err := h.DB.SelectContext(c.Request().Context(), &submissionsCounts, q, args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	classCountMap := lo.SliceToMap(submissionsCounts, func(sc submissionsCount, _ int) (string, int) {
+		return sc.ClassID, sc.Cnt
+	})
 
 	for _, course := range registeredCourses {
 		// 講義一覧の取得
@@ -673,11 +697,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		classScores := make([]ClassScore, 0, len(classes))
 		var myTotalScore int
 		for _, class := range classes {
-			var submissionsCount int
-			if err := h.DB.GetContext(c.Request().Context(), &submissionsCount, "SELECT COUNT(*) FROM `submissions` WHERE `class_id` = ?", class.ID); err != nil {
-				c.Logger().Error(err)
-				return c.NoContent(http.StatusInternalServerError)
-			}
+			submissionsCount := classCountMap[class.ID]
 
 			// myScoreが空の場合は、classScoresをappendして次のループへ
 			if s, ok := myScoresMap[class.ID]; !ok {
