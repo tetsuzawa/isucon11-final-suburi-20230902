@@ -653,7 +653,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	myCredits := 0
 	classIDs := lo.FlatMap(lo.Values(classesMap), func(classes []Class, _ int) []string {
 		return lo.Map(classes, func(class Class, _ int) string {
-			return class.CourseID
+			return class.ID
 		})
 	})
 	q, args, err := sqlx.In("SELECT class_id, COUNT(*) AS cnt FROM `submissions` WHERE `class_id` IN (?) GROUP BY class_id", classIDs)
