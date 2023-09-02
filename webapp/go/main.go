@@ -626,8 +626,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		" FROM submissions" +
 		" INNER JOIN public.classes on classes.id = submissions.class_id" +
 		" WHERE course_id IN(?)" +
-		" AND user_id = ?'" +
-		" ORDER BY part"
+		" AND user_id = ?'"
 	query, params, err = sqlx.In(query, courseIDs, userID)
 
 	if err != nil {
