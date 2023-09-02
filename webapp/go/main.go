@@ -1198,7 +1198,7 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 	}
 
 	for _, score := range req {
-		if _, err := tx.Exec("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ? WHERE `users`.`code` = ? AND `class_id` = ?", score.Score, score.UserCode, classID); err != nil {
+		if _, err := tx.Exec("UPDATE `submissions` SET score = ? FROM `users` WHERE `users`.`id` = `submissions`.`user_id` `users`.`code` = ? AND `class_id` = ?", score.Score, score.UserCode, classID); err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
