@@ -642,9 +642,9 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	}
 
 	// myScores に含まれる ClassID をkeyにしてmapを作る
-	myScoresMap := make(map[string][]Score)
+	myScoresMap := make(map[string]Score)
 	for _, score := range myScores {
-		myScoresMap[score.ClassID] = append(myScoresMap[score.ClassID], score)
+		myScoresMap[score.ClassID] = score
 	}
 
 	// 科目毎の成績計算処理
@@ -680,13 +680,8 @@ func (h *handlers) GetGrades(c echo.Context) error {
 				return c.NoContent(http.StatusInternalServerError)
 			}
 
-			var myScore sql.NullInt64
-
-			// myScoresMapからScoreを取得
-			myScore := myScoresMap[class.ID].Score
-
 			// myScoreが空の場合は、classScoresをappendして次のループへ
-			if !myScore.Valid {
+			if score, ok := myScoresMap[class.ID]; !ok {
 				classScores = append(classScores, ClassScore{
 					ClassID:    class.ID,
 					Part:       class.Part,
@@ -695,7 +690,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 					Submitters: submissionsCount,
 				})
 			} else {
-				score := int(myScore.Int64)
+				score := int(score.Score)
 				myTotalScore += score
 				classScores = append(classScores, ClassScore{
 					ClassID:    class.ID,
