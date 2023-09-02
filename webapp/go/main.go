@@ -566,6 +566,14 @@ type ClassScore struct {
 	Submitters int    `json:"submitters"` // 提出した学生数
 }
 
+type Score struct {
+	UserID   string `db:"id"`
+	CourseID string `db:"course_id"`
+	ClassID  string `db:"class_id"`
+	Part     uint8  `db:"part"`
+	score    int    `db:"score"`
+}
+
 // GetGrades GET /api/users/me/grades 成績取得
 func (h *handlers) GetGrades(c echo.Context) error {
 	userID, _, _, err := getUserInfo(c)
@@ -613,10 +621,37 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		classesMap[class.CourseID] = append(classesMap[class.CourseID], class)
 	}
 
+	// courseIDs を使ってsubmissionsにWHERE IN で検索する
+	query = "SELECT submissions.score, classes.course_id" +
+		" FROM submissions" +
+		" INNER JOIN public.classes on classes.id = submissions.class_id" +
+		" WHERE course_id IN(?)" +
+		" AND user_id = ?'" +
+		" ORDER BY part"
+	query, params, err := sqlx.In(query, courseIDs, userID)
+
+	if err != nil {
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	// Scoreを取得
+	var myScores []Score
+	if err := h.DB.GetContext(c.Request().Context(), &myScores, query, params...); err != nil && err != sql.ErrNoRows {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	// myScores に含まれる ClassID をkeyにしてmapを作る
+	myScoresMap := make(map[string][]Score)
+	for _, score := range myScores {
+		myScoresMap[score.ClassID] = append(myScoresMap[score.ClassID], score)
+	}
+
 	// 科目毎の成績計算処理
 	courseResults := make([]CourseResult, 0, len(registeredCourses))
 	myGPA := 0.0
 	myCredits := 0
+
 	for _, course := range registeredCourses {
 		// 講義一覧の取得
 		// var classes []Class
@@ -646,10 +681,12 @@ func (h *handlers) GetGrades(c echo.Context) error {
 			}
 
 			var myScore sql.NullInt64
-			if err := h.DB.GetContext(c.Request().Context(), &myScore, "SELECT `submissions`.`score` FROM `submissions` WHERE `user_id` = ? AND `class_id` = ?", userID, class.ID); err != nil && err != sql.ErrNoRows {
-				c.Logger().Error(err)
-				return c.NoContent(http.StatusInternalServerError)
-			} else if err == sql.ErrNoRows || !myScore.Valid {
+
+			// myScoresMapからclass.Score
+			tmp_score := myScoresMap[class.ID]
+
+			// myScoresが空の場合は、classScoresをappendして次のループへ
+			if len(tmp_score) == 0 || !tmp_score.score.Valid || tmp_score.score == 0 {
 				classScores = append(classScores, ClassScore{
 					ClassID:    class.ID,
 					Part:       class.Part,
@@ -668,6 +705,28 @@ func (h *handlers) GetGrades(c echo.Context) error {
 					Submitters: submissionsCount,
 				})
 			}
+			// if err := h.DB.GetContext(c.Request().Context(), &myScore, "SELECT `submissions`.`score` FROM `submissions` WHERE `user_id` = ? AND `class_id` = ?", userID, class.ID); err != nil && err != sql.ErrNoRows {
+			// 	c.Logger().Error(err)
+			// 	return c.NoContent(http.StatusInternalServerError)
+			// } else if err == sql.ErrNoRows || !myScore.Valid {
+			// 	classScores = append(classScores, ClassScore{
+			// 		ClassID:    class.ID,
+			// 		Part:       class.Part,
+			// 		Title:      class.Title,
+			// 		Score:      nil,
+			// 		Submitters: submissionsCount,
+			// 	})
+			// } else {
+			// 	score := int(myScore.Int64)
+			// 	myTotalScore += score
+			// 	classScores = append(classScores, ClassScore{
+			// 		ClassID:    class.ID,
+			// 		Part:       class.Part,
+			// 		Title:      class.Title,
+			// 		Score:      &score,
+			// 		Submitters: submissionsCount,
+			// 	})
+			// }
 		}
 
 		// この科目を履修している学生のTotalScore一覧を取得
