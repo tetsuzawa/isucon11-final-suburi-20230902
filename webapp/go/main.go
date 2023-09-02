@@ -644,11 +644,11 @@ type ClassScore struct {
 }
 
 type DBScore struct {
-	UserID   string `db:"id"`
-	CourseID string `db:"course_id"`
-	ClassID  string `db:"class_id"`
-	Part     uint8  `db:"part"`
-	Score    int    `db:"score"`
+	UserID   string        `db:"id"`
+	CourseID string        `db:"course_id"`
+	ClassID  string        `db:"class_id"`
+	Part     uint8         `db:"part"`
+	Score    sql.NullInt32 `db:"score"`
 }
 
 // GetGrades GET /api/users/me/grades 成績取得
@@ -699,7 +699,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	}
 
 	// courseIDs を使ってsubmissionsにWHERE IN で検索する
-	query = "SELECT COALESCE(submissions.score, 0) AS score, classes.course_id, classes.id AS class_id" +
+	query = "SELECT submissions.score, classes.course_id, classes.id AS class_id" +
 		" FROM submissions" +
 		" INNER JOIN public.classes on classes.id = submissions.class_id" +
 		" WHERE course_id IN(?)" +
@@ -776,7 +776,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 			submissionsCount := classCountMap[class.ID]
 
 			// myScoreが空の場合は、classScoresをappendして次のループへ
-			if s, ok := myScoresMap[class.ID]; !ok || s.Score == 0 {
+			if s, ok := myScoresMap[class.ID]; !ok || !s.Score.Valid {
 				classScores = append(classScores, ClassScore{
 					ClassID:    class.ID,
 					Part:       class.Part,
@@ -785,7 +785,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 					Submitters: submissionsCount,
 				})
 			} else {
-				score := int(s.Score)
+				score := int(s.Score.Int32)
 				myTotalScore += score
 				classScores = append(classScores, ClassScore{
 					ClassID:    class.ID,
