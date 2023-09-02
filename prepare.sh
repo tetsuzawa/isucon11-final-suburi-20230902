@@ -35,17 +35,6 @@ mkdir -p /home/isucon/log/app
 sudo systemctl restart isucholar.go.service
 
 # ====== nginx ======
-mkdir -p /home/isucon/log/nginx
-sudo touch ${nginx_access_log} ${nginx_error_log}
-sudo logrotate -f /home/isucon/etc/logrotate.d/nginx
-sudo cp ${nginx_access_log} ${nginx_access_log}.prev
-sudo truncate -s 0 ${nginx_access_log}
-sudo cp ${nginx_error_log} ${nginx_error_log}.prev
-sudo truncate -s 0 ${nginx_error_log}
-sudo nginx -t
-sudo systemctl restart nginx
-
-# ====== openresty =====
 # mkdir -p /home/isucon/log/nginx
 # sudo touch ${nginx_access_log} ${nginx_error_log}
 # sudo logrotate -f /home/isucon/etc/logrotate.d/nginx
@@ -53,8 +42,19 @@ sudo systemctl restart nginx
 # sudo truncate -s 0 ${nginx_access_log}
 # sudo cp ${nginx_error_log} ${nginx_error_log}.prev
 # sudo truncate -s 0 ${nginx_error_log}
-# sudo openresty -c ./etc/openresty/nginx.conf -t
-# sudo systemctl restart openresty
+# sudo nginx -t
+# sudo systemctl restart nginx
+
+# ====== openresty =====
+mkdir -p /home/isucon/log/nginx
+sudo touch ${nginx_access_log} ${nginx_error_log}
+sudo logrotate -f /home/isucon/etc/logrotate.d/nginx
+sudo cp ${nginx_access_log} ${nginx_access_log}.prev
+sudo truncate -s 0 ${nginx_access_log}
+sudo cp ${nginx_error_log} ${nginx_error_log}.prev
+sudo truncate -s 0 ${nginx_error_log}
+sudo openresty -c /etc/nginx/nginx.conf -t
+sudo systemctl restart openresty
 
 # ====== mysql ======
 # sudo touch ${mysql_slow_log} ${mysql_error_log}
