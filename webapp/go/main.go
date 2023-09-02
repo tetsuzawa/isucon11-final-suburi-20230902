@@ -519,7 +519,7 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	}
 
 	var alreadyRegistered []Course
-	query := "SELECT `courses`.*" +
+	query = "SELECT `courses`.*" +
 		" FROM `courses`" +
 		" JOIN `registrations` ON `courses`.`id` = `registrations`.`course_id`" +
 		" WHERE `courses`.`status` != ? AND `registrations`.`user_id` = ?"

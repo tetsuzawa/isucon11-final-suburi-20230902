@@ -11,6 +11,7 @@ require (
 	github.com/labstack/echo/v4 v4.11.1
 	github.com/mackee/pgx-replaced v0.0.0-20230218024503-3dae8b2f6855
 	github.com/oklog/ulid/v2 v2.1.0
+	github.com/samber/lo v1.38.1
 	go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho v0.43.0
 	go.opentelemetry.io/otel v1.17.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.17.0
