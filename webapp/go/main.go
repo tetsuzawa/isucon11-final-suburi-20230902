@@ -671,7 +671,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	classCountMap := lo.SliceToMap(submissionsCounts, func(sc submissionsCount, _ int) (string, int) {
+	classCountMap := lo.SliceToMap(submissionsCounts, func(sc submissionsCount) (string, int) {
 		return sc.ClassID, sc.Cnt
 	})
 
