@@ -1229,12 +1229,12 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var classCount int
-	if err := tx.Get(&classCount, "SELECT COUNT(*) FROM `classes` WHERE `id` = ? FOR UPDATE", classID); err != nil {
+	var id string
+	if err := tx.Get(&id, "SELECT id FROM `classes` WHERE `id` = ? FOR UPDATE", classID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	if classCount == 0 {
+	if id == "" {
 		return c.String(http.StatusNotFound, "No such class.")
 	}
 	var submissions []Submission
