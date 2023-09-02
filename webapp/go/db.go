@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 
+	"github.com/XSAM/otelsql"
 	"github.com/jmoiron/sqlx"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+
 	_ "github.com/mackee/pgx-replaced"
 )
 
@@ -17,5 +20,27 @@ func GetDB(batch bool) (*sqlx.DB, error) {
 		GetEnv("PG_DATABASE", "isucholar"),
 	)
 
-	return sqlx.Open("pgx-replaced", dsn)
+	db, err := otelsql.Open(
+		"pgx-replaced",
+		dsn,
+		otelsql.WithAttributes(
+			semconv.DBSystemPostgreSQL,
+		),
+		otelsql.WithSpanOptions(otelsql.SpanOptions{
+			Ping:                 false,
+			RowsNext:             false,
+			DisableErrSkip:       false,
+			DisableQuery:         false,
+			OmitConnResetSession: true,
+			OmitConnPrepare:      true,
+			OmitConnQuery:        false,
+			OmitRows:             true,
+			OmitConnectorConnect: false,
+		}),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return sqlx.NewDb(db, "pgx"), nil
 }
