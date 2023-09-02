@@ -23,7 +23,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/samber/lo"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -40,20 +39,21 @@ type handlers struct {
 }
 
 func main() {
-	tp, _ := initTracer(context.Background())
-	defer func() {
-		if err := tp.Shutdown(context.Background()); err != nil {
-			panic(err)
-		}
-	}()
+	//tp, _ := initTracer(context.Background())
+	//defer func() {
+	//	if err := tp.Shutdown(context.Background()); err != nil {
+	//		panic(err)
+	//	}
+	//}()
 
 	e := echo.New()
-	e.Debug = GetEnv("DEBUG", "") == "true"
+	//e.Debug = GetEnv("DEBUG", "") == "true"
+	e.Debug = false
 	e.Server.Addr = fmt.Sprintf(":%v", GetEnv("PORT", "7000"))
 	e.HideBanner = true
 
-	e.Use(otelecho.Middleware("isucholar"))
-	e.Use(middleware.Logger())
+	//e.Use(otelecho.Middleware("isucholar"))
+	//e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte("trapnomura"))))
 
