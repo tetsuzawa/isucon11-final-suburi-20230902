@@ -26,6 +26,17 @@ func GetDB(batch bool) (*sqlx.DB, error) {
 		otelsql.WithAttributes(
 			semconv.DBSystemPostgreSQL,
 		),
+		otelsql.WithSpanOptions(otelsql.SpanOptions{
+			Ping:                 false,
+			RowsNext:             false,
+			DisableErrSkip:       false,
+			DisableQuery:         false,
+			OmitConnResetSession: true,
+			OmitConnPrepare:      true,
+			OmitConnQuery:        false,
+			OmitRows:             true,
+			OmitConnectorConnect: false,
+		}),
 	)
 	if err != nil {
 		return nil, err
