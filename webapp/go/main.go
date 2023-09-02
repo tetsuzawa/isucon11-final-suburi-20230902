@@ -699,7 +699,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	}
 
 	// courseIDs を使ってsubmissionsにWHERE IN で検索する
-	query = "SELECT COALESCE(submissions.score, 0), classes.course_id, classes.id AS class_id" +
+	query = "SELECT COALESCE(submissions.score, 0) AS score, classes.course_id, classes.id AS class_id" +
 		" FROM submissions" +
 		" INNER JOIN public.classes on classes.id = submissions.class_id" +
 		" WHERE course_id IN(?)" +
