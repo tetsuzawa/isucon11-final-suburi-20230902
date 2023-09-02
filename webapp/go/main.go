@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
@@ -1099,6 +1100,7 @@ func (h *handlers) GetClasses(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	c.Response().Header().Set("ETag", userID+courseID+time.Now().String())
 
 	return c.JSON(http.StatusOK, res)
 }
