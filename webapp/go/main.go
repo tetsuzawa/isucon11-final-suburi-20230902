@@ -699,7 +699,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	}
 
 	// courseIDs を使ってsubmissionsにWHERE IN で検索する
-	query = "SELECT submissions.score, classes.course_id, classes.id AS class_id" +
+	query = "SELECT COALESCE(submissions.score, 0) classes.course_id, classes.id AS class_id" +
 		" FROM submissions" +
 		" INNER JOIN public.classes on classes.id = submissions.class_id" +
 		" WHERE course_id IN(?)" +
@@ -776,7 +776,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 			submissionsCount := classCountMap[class.ID]
 
 			// myScoreが空の場合は、classScoresをappendして次のループへ
-			if s, ok := myScoresMap[class.ID]; !ok {
+			if s, ok := myScoresMap[class.ID]; !ok || s.Score == 0 {
 				classScores = append(classScores, ClassScore{
 					ClassID:    class.ID,
 					Part:       class.Part,
