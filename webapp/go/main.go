@@ -922,12 +922,12 @@ func (h *handlers) SetCourseStatus(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var id string
-	if err := tx.Get(&id, "SELECT id FROM `courses` WHERE `id` = ? FOR UPDATE", courseID); err != nil {
+	var exists int
+	if err := tx.Get(&exists, "SELECT 1 FROM `courses` WHERE `id` = ? FOR UPDATE", courseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	if id == "" {
+	if exists == 0 {
 		return c.String(http.StatusNotFound, "No such course.")
 	}
 
@@ -1231,12 +1231,12 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var id string
-	if err := tx.Get(&id, "SELECT id FROM `classes` WHERE `id` = ? FOR UPDATE", classID); err != nil {
+	var exists int
+	if err := tx.Get(&exists, "SELECT 1 FROM `classes` WHERE `id` = ? FOR UPDATE", classID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	if id == "" {
+	if exists == 0 {
 		return c.String(http.StatusNotFound, "No such class.")
 	}
 	var submissions []Submission
