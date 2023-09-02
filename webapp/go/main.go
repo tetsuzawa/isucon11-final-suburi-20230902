@@ -635,7 +635,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 
 	// Scoreを取得
 	var myScores []DBScore
-	if err := h.DB.GetContext(c.Request().Context(), &myScores, query, params...); err != nil && err != sql.ErrNoRows {
+	if err := h.DB.SelectContext(c.Request().Context(), &myScores, query, params...); err != nil && err != sql.ErrNoRows {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
